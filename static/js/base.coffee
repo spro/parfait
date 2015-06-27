@@ -1,15 +1,12 @@
 kefir = require 'kefir'
-h = require 'virtual-dom/h'
-diff = require 'virtual-dom/diff'
-patch = require 'virtual-dom/patch'
-createElement = require 'virtual-dom/create-element'
 merged = require './merge'
+render = require './render'
+h = require 'virtual-dom/h'
 
 # Helpers
 # ------------------------------------------------------------------------------
 
 # Write an input event to a stream
-# TODO: Replace emitter
 writeValueTo = (s) -> (e) ->
     s.plug kefir.constant e.target.value
 
@@ -43,7 +40,7 @@ app_state = merged {
 # Rendering
 # ------------------------------------------------------------------------------
 
-renderApp = (state) ->
+App = (state) ->
     search_info =
         if state.loading
             'Loading...'
@@ -54,26 +51,12 @@ renderApp = (state) ->
     h 'div', [
         h 'input', {oninput: writeValueTo(q_stream), value: state.q}
         h 'strong', search_info
-        h 'ul', state.results?.map renderResult
+        h 'ul', state.results?.map Result
     ]
 
-renderResult = (s) ->
+Result = (s) ->
     h 'li', s
 
-# Loop
-# ------------------------------------------------------------------------------
+# Goings
 
-# Render virtual DOM to real DOM
-tree = renderApp(app_state)
-rootNode = createElement(tree)
-document.body.appendChild rootNode
-renderRoot = (state) ->
-    newTree = renderApp(state)
-    patches = diff(tree, newTree)
-    rootNode = patch(rootNode, patches)
-    tree = newTree
-    return
-
-# Render on every app state change
-app_state.onValue renderRoot
-
+render App, app_state
