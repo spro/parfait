@@ -6,12 +6,12 @@ createElement = require 'virtual-dom/create-element'
 # Loop
 # ------------------------------------------------------------------------------
 
-render = (component, state_stream) ->
+render = (component, state$, el) ->
 
     # Set up root node
     tree = h('div')
     rootNode = createElement(tree)
-    document.body.appendChild rootNode
+    el.appendChild rootNode
 
     # Render new app state
     renderRoot = (state) ->
@@ -22,6 +22,6 @@ render = (component, state_stream) ->
         return
 
     # Render on every state change
-    state_stream.onValue renderRoot
+    state$.onValue renderRoot
 
 module.exports = render

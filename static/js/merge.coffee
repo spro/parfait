@@ -7,11 +7,11 @@ merge = (obs...) ->
             o[k] = v
     o
 
-merged = (so, s0) ->
+merged = (so, s0={}) ->
     ss = []
     for k, s of so
         do (k) ->
-            sm = s.merge(kefir.constant s0[k]).map (v) ->
+            sm = kefir.constant(s0[k]).concat(s).map (v) ->
                 o = {}; o[k]=v; o
             ss.push sm
     kefir.combine ss, merge
