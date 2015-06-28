@@ -50,6 +50,8 @@ loadJson = (path) ->
 # ------------------------------------------------------------------------------
 
 # TODO: Better way to set these up?
+routes =
+    page$: Kefir.fromEvents(window, 'hashchange').merge(Kefir.fromEvents(window, 'load')).map(-> window.location.hash.replace(/^#/, '')).log '[onhashchange]'
 inputs =
     q$: Kefir.pool()
     adder:
@@ -131,6 +133,7 @@ adder$.sampledBy(inputs.adder.do_add$)
 # TODO: How will nested state work? Should this be one big reduced object?
 
 app$ = merged
+    page: routes.page$
     q: inputs.q$
     results: results$
     loading: search$.awaiting(results$)
@@ -147,7 +150,26 @@ app$ = merged
 # ------------------------------------------------------------------------------
 
 App = (app) ->
+    h '#app', [
+        Nav app
+        switch app.page
+            when 'persons' then PersonsPage app
+            when 'trees' then TreesPage app
+            when 'tweets' then TweetsPage app
+    ]
 
+Nav = (app) ->
+    links = ['persons', 'trees', 'tweets']
+    h '#nav', links.map (l) ->
+        NavLink l, app
+
+NavLink = (name, app) ->
+    elName = 'a'
+    if app.page == name
+        elName += '.selected'
+    h elName, {href: '#' + name}, name
+
+PersonsPage = (app) ->
     h 'div', [
         h 'h1', 'Persons'
         Input inputs.q$, app.q
@@ -158,6 +180,10 @@ App = (app) ->
                 app.results.length + ' results'
             else 'Search for names'
         h 'ul', app.results?.map Result
+    ]
+
+TreesPage = (app) ->
+    h 'div', [
         h 'h1', 'Trees'
         h 'ul', app.trees?.map Tree
         Adder(app.adder)
