@@ -58,6 +58,9 @@ inputs =
         kind$: Kefir.pool()
         age$: Kefir.pool()
         do_add$: Kefir.pool()
+    tweets_going$: Kefir.pool()
+    tweets_media$: Kefir.pool()
+    tweets_watching$: Kefir.pool()
 
 # Search q stream
 search$ =
@@ -69,36 +72,45 @@ loadResults = (q) ->
 results$ = search$
     .flatMap(loadResults)
 
+# Selected keywords
+selected_keywords$ = Kefir.pool()
+selectKeyword = (w) -> writeTo selected_keywords$, [w]
+unselectKeyword = (w) -> writeTo selected_keywords$, []
+
+# Filtering tweet stream by selected keywords
+filterTweet = (t, ks) ->
+    console.log 'my ks are', ks
+    text_keywords = keywords t.text
+    for k in ks
+        if k in text_keywords then return true
+    return false
+
+# Tweet stream
 tweet$ = somata_subscribe('twitter', 'tweet')
+    .filterBy inputs.tweets_going$
+tweet_options$ = merged
+    tweets_going: inputs.tweets_going$
+    tweets_media: inputs.tweets_media$
+    tweets_watching: inputs.tweets_watching$
+    selected_keywords: selected_keywords$
+tweets$ = tweet_options$.flatMapLatest((opts) ->
+    tweet$
+        .filter (t) ->
+            if !opts.tweets_watching then return false
+            if !opts.tweets_media then return true
+            else return t.entities.media?
+        .filter (t) ->
+            if opts.selected_keywords.length == 0 then return true
+            else return filterTweet t, opts.selected_keywords
+).slidingWindow(20)
+
+# Word counting
 word$ = tweet$.map((t) -> t.text).map(keywords).flatten()
 count = (counts, word) ->
     counts[word] ||= 0
     counts[word] +=  1
     counts
 word_count$ = word$.scan(count, {})
-tweets$ = tweet$
-    .slidingWindow(20).toProperty()
-selected_keywords$ = Kefir.pool()
-writeTo selected_keywords$, []
-
-selectKeyword = (w) ->
-    writeTo selected_keywords$, [w]
-
-unselectKeyword = (w) ->
-    writeTo selected_keywords$, []
-
-filterTweets = (tweets, ks) ->
-    if ks.length == 0 then return tweets
-    tweets.filter (t) ->
-        text_keywords = keywords t.text
-        for k in ks
-            if k in text_keywords then return true
-        return false
-
-unfiltered_tweets$ = tweets$
-    .filterBy selected_keywords$.map (ks) -> ks.length == 0
-filtered_tweets$ = selected_keywords$.flatMap (ks) ->
-    tweets$.map (ts) -> filterTweets ts, ks
 
 # Trees
 # TODO: Better encapsulation and eventually abstraction of this "reactive collection"
@@ -106,7 +118,6 @@ filtered_tweets$ = selected_keywords$.flatMap (ks) ->
 tree_id = 0
 trees = [{id: tree_id, kind: 'cone', age: 55}]
 trees$ = Kefir.pool()
-writeTo trees$, trees
 removeTree = (t_id) ->
     trees = trees.filter (t) -> t.id != t_id
     writeTo trees$, trees
@@ -115,6 +126,7 @@ addTree = (t) ->
     trees.push t
     writeTo trees$, trees
 
+# Tree adder
 adder$ = merged
     kind: inputs.adder.kind$
     age: inputs.adder.age$
@@ -139,12 +151,13 @@ app$ = merged
     loading: search$.awaiting(results$)
     trees: trees$
     adder: adder$
-    tweets: unfiltered_tweets$.merge(filtered_tweets$)
-    tweets_waiting: Kefir.constant(true).awaiting(unfiltered_tweets$)
+    tweets: tweets$
+    tweets_waiting: Kefir.constant(true).awaiting(tweets$)
+    tweets_going: inputs.tweets_going$
+    tweets_media: inputs.tweets_media$
+    tweets_watching: inputs.tweets_watching$
     word_count: word_count$
     selected_keywords: selected_keywords$
-,
-    selected_keywords: []
 
 # Components
 # ------------------------------------------------------------------------------
@@ -187,12 +200,39 @@ TreesPage = (app) ->
         h 'h1', 'Trees'
         h 'ul', app.trees?.map Tree
         Adder(app.adder)
+    ]
+
+reversed = (a) ->
+    a2 = Array.prototype.slice.call(a)
+    a2.reverse()
+    a2
+
+noTweetsGoing = -> writeTo inputs.tweets_going$, false
+yesTweetsGoing = -> writeTo inputs.tweets_going$, true
+noTweetsMedia = -> writeTo inputs.tweets_media$, false
+yesTweetsMedia = -> writeTo inputs.tweets_media$, true
+noTweetsWatching = -> writeTo inputs.tweets_watching$, false
+yesTweetsWatching = -> writeTo inputs.tweets_watching$, true
+TweetsPage = (app) ->
+    h 'div', [
         h 'h1', 'Tweets'
+        if app.tweets_going
+            h 'a', {onclick: noTweetsGoing}, 'Stop going'
+        else
+            h 'a', {onclick: yesTweetsGoing}, 'Start going'
+        if app.tweets_media
+            h 'a', {onclick: noTweetsMedia}, 'Show all tweets'
+        else
+            h 'a', {onclick: yesTweetsMedia}, 'Show media only'
+        if app.tweets_watching
+            h 'a', {onclick: noTweetsWatching}, 'Stop watching'
+        else
+            h 'a', {onclick: yesTweetsWatching}, 'Start watching'
         if app.tweets_waiting
             h 'em', 'Waiting for tweets...'
-        else [
+        else h 'div', [
             Words(app.word_count, app.selected_keywords)
-            h '#tweets', app.tweets?.map Tweet
+            h '#tweets', reversed(app.tweets).map Tweet
         ]
     ]
 
@@ -223,13 +263,17 @@ Tree = (t) ->
     ]
 
 Tweet = (tweet) ->
-    h 'div.tweet', [
+    h 'div.tweet#'+tweet.id, [
         h 'strong', tweet.user.screen_name
         h 'p', tweet.text
+        if tweet.entities.media?
+            h 'img', src: tweet.entities.media[0].media_url
     ]
 
 Words = (word_count, selected_keywords) ->
-    h 'div#words', sorted_pairs(word_count).filter(([w,c]) -> c > 1).map (p) ->
+    ps = sorted_pairs(word_count)
+    rel = ps.length * 0.005
+    h 'div#words', ps.filter(([w,c]) -> c > rel).map (p) ->
         Word p, selected_keywords
 
 Word = ([w, c], selected_keywords) ->
@@ -245,3 +289,10 @@ Word = ([w, c], selected_keywords) ->
 # ------------------------------------------------------------------------------
 
 render App, app$.debounce(10), document.body
+
+writeTo trees$, trees
+writeTo selected_keywords$, []
+writeTo inputs.tweets_going$, true
+writeTo inputs.tweets_media$, false
+writeTo inputs.tweets_watching$, true
+
