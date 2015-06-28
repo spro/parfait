@@ -1,0 +1,45 @@
+*
+    margin: 0
+    padding: 0
+    box-sizing: border-box
+
+body
+    font: 13px "Helvetica Neue", Arial, sans-serif
+    padding: 20px
+
+h1
+    margin-bottom: 20px
+
+* + h1
+    margin-top: 20px
+
+ul
+    padding-left: 20px
+    li + li
+        margin-top: 5px
+
+#words, #tweets
+    display: inline-block
+    vertical-align: top
+
+#words
+    width: 25%
+#tweets
+    width: 75%
+
+#words li
+    list-style: none
+    display: inline-block
+    padding: 2px 4px
+    border: 1px solid #eee
+    background: #f5f5f5
+    margin: 0 2px 2px 0
+
+    .count
+        margin-left: 10px
+        color: #aaa
+
+#tweets .tweet
+    padding: 10px
+    border: 1px solid #eee
+    margin-bottom: 10px
