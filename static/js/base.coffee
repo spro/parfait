@@ -16,8 +16,18 @@ somata_subscribe = (args...) ->
 randomChoice = (l) -> l[Math.floor(Math.random()*l.length)]
 
 # Turn an object into an array of [k, v] pairs
-pairs = (o) ->
-    Object.keys(o).map (k) -> [k, o[k]]
+pairs = (obj) ->
+    keys = Object.keys(obj)
+    length = keys.length
+    ps = Array(length)
+    i = 0
+    while i < length
+        ps[i] = [
+            keys[i]
+            obj[keys[i]]
+        ]
+        i++
+    ps
 
 # Turn an object into an array of [k, v] pairs sorted by v (descending)
 sorted_pairs = (o) ->
