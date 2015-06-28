@@ -1,12 +1,28 @@
 Kefir = require 'Kefir'
 merged = require './merge'
 render = require './render'
+keywords = require './keywords'
 h = require 'virtual-dom/h'
+somata = require './somata-socketio'
 
 # Helpers
 # ------------------------------------------------------------------------------
 
+somata_subscribe = (args...) ->
+    Kefir.stream (emitter) ->
+        somata.subscribe args..., (event) ->
+            emitter.emit event
+
 randomChoice = (l) -> l[Math.floor(Math.random()*l.length)]
+
+# Turn an object into an array of [k, v] pairs
+pairs = (o) ->
+    Object.keys(o).map (k) -> [k, o[k]]
+
+# Turn an object into an array of [k, v] pairs sorted by v (descending)
+sorted_pairs = (o) ->
+    ps = pairs(o)
+    ps.sort ([k1, v1], [k2, v2]) -> v2 - v1
 
 # Workaround since emitter is deprecating
 writeTo = (s$, v) ->
@@ -40,6 +56,37 @@ loadResults = (q) ->
     loadJson '/search?q=' + q
 results$ = search$
     .flatMap(loadResults)
+
+tweet$ = somata_subscribe('twitter', 'tweet')
+word$ = tweet$.map((t) -> t.text).map(keywords).flatten()
+count = (counts, word) ->
+    counts[word] ||= 0
+    counts[word] +=  1
+    counts
+word_count$ = word$.scan(count, {})
+tweets$ = tweet$
+    .slidingWindow(20).toProperty()
+selected_keywords$ = Kefir.pool()
+writeTo selected_keywords$, []
+
+selectKeyword = (w) ->
+    writeTo selected_keywords$, [w]
+
+unselectKeyword = (w) ->
+    writeTo selected_keywords$, []
+
+filterTweets = (tweets, ks) ->
+    if ks.length == 0 then return tweets
+    tweets.filter (t) ->
+        text_keywords = keywords t.text
+        for k in ks
+            if k in text_keywords then return true
+        return false
+
+unfiltered_tweets$ = tweets$
+    .filterBy selected_keywords$.map (ks) -> ks.length == 0
+filtered_tweets$ = selected_keywords$.flatMap (ks) ->
+    tweets$.map (ts) -> filterTweets ts, ks
 
 # Trees
 # TODO: Better encapsulation and eventually abstraction of this "reactive collection"
@@ -79,26 +126,38 @@ app$ = merged
     loading: search$.awaiting(results$)
     trees: trees$
     adder: adder$
+    tweets: unfiltered_tweets$.merge(filtered_tweets$)
+    tweets_waiting: Kefir.constant(true).awaiting(unfiltered_tweets$)
+    word_count: word_count$
+    selected_keywords: selected_keywords$
+,
+    selected_keywords: []
 
 # Components
 # ------------------------------------------------------------------------------
 
 App = (app) ->
-    search_info =
-        if app.loading
-            'Loading...'
-        else if app.results?
-            app.results.length + ' results'
-        else 'Search for names'
 
     h 'div', [
         h 'h1', 'Persons'
         Input inputs.q$, app.q
-        h 'strong', search_info
+        h 'strong',
+            if app.loading
+                'Loading...'
+            else if app.results?
+                app.results.length + ' results'
+            else 'Search for names'
         h 'ul', app.results?.map Result
         h 'h1', 'Trees'
         h 'ul', app.trees?.map Tree
         Adder(app.adder)
+        h 'h1', 'Tweets'
+        if app.tweets_waiting
+            h 'em', 'Waiting for tweets...'
+        else [
+            Words(app.word_count, app.selected_keywords)
+            h '#tweets', app.tweets?.map Tweet
+        ]
     ]
 
 Adder = (adder={}) ->
@@ -127,7 +186,26 @@ Tree = (t) ->
         h 'em', t.age + ' years old'
     ]
 
+Tweet = (tweet) ->
+    h 'div.tweet', [
+        h 'strong', tweet.user.screen_name
+        h 'p', tweet.text
+    ]
+
+Words = (word_count, selected_keywords) ->
+    h 'div#words', sorted_pairs(word_count).filter(([w,c]) -> c > 1).map (p) ->
+        Word p, selected_keywords
+
+Word = ([w, c], selected_keywords) ->
+    s = h 'span', [w, h('span.count', "#{c}")]
+    if w in selected_keywords
+        s = h 'strong', s
+        onclick = -> unselectKeyword w
+    else
+        onclick = -> selectKeyword w
+    h 'li', {onclick}, s
+
 # Going
 # ------------------------------------------------------------------------------
 
-render App, app$, document.body
+render App, app$.debounce(10), document.body
